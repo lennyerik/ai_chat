@@ -1,5 +1,6 @@
-pub trait LargeLanguageModel: Iterator<Item = Result<String, Self::Error>> {
-    type Error;
+pub trait LargeLanguageModel<'c> {
+    type Error: std::error::Error;
+    type Response: 'c + Iterator<Item = Result<String, Self::Error>>;
 
-    fn send_message(&mut self, message: &str) -> Result<(), Self::Error>;
+    fn send_message(&'c mut self, message: &str) -> Result<Self::Response, Self::Error>;
 }

@@ -1,3 +1,5 @@
+use std::io::BufReader;
+
 use super::llm;
 
 const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
@@ -11,35 +13,34 @@ pub enum Error {
     NoVqdReceived,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(serde::Serialize, Debug, Clone, Copy)]
 pub enum DDGChatModel {
+    #[serde(rename = "gpt-4o-mini")]
     GPT4oMini,
+
+    #[serde(rename = "claude-3-haiku-20240307")]
     Claude3Haiku,
+
+    #[serde(rename = "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo")]
     Llama370B,
+
+    #[serde(rename = "mistralai/Mixtral-8x7B-Instruct-v0.1")]
     Mixtral8x7B,
 }
 
-impl From<DDGChatModel> for &str {
-    fn from(model: DDGChatModel) -> Self {
-        match model {
-            DDGChatModel::GPT4oMini => "gpt-4o-mini",
-            DDGChatModel::Claude3Haiku => "claude-3-haiku-20240307",
-            DDGChatModel::Llama370B => "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
-            DDGChatModel::Mixtral8x7B => "mistralai/Mixtral-8x7B-Instruct-v0.1",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
+#[derive(serde::Serialize, Debug, Clone, Copy)]
 pub enum MessageRole {
+    #[serde(rename = "user")]
     User,
+
+    #[serde(rename = "asssistant")]
     Assistant,
 }
 
-#[derive(Debug, Clone)]
+#[derive(serde::Serialize, Debug, Clone)]
 pub struct DDGMessage {
     role: MessageRole,
-    text: String,
+    content: String,
 }
 
 #[derive(Debug)]
@@ -47,7 +48,6 @@ pub struct DDGChat {
     model: DDGChatModel,
     messages: Vec<DDGMessage>,
     current_vqd: String,
-    current_response: Option<ureq::Response>,
 }
 
 impl DDGChat {
@@ -63,32 +63,52 @@ impl DDGChat {
             model,
             messages: Vec::new(),
             current_vqd: vqd.to_owned(),
-            current_response: None,
         })
     }
 }
 
-impl Iterator for DDGChat {
-    type Item = Result<String, Error>;
+impl<'c> llm::LargeLanguageModel<'c> for DDGChat {
+    type Error = Error;
+    type Response = DDGResponse<'c>;
 
-    fn next(&mut self) -> Option<Self::Item> {
-        if let Some(response) = &self.current_response {
-            todo!()
-        } else {
-            None
-        }
+    fn send_message(&'c mut self, message: &str) -> Result<Self::Response, Self::Error> {
+        self.messages.push(DDGMessage {
+            role: MessageRole::User,
+            content: message.to_string(),
+        });
+
+        let net_resp = ureq::post("https://duckduckgo.com/duckchat/v1/chat")
+            .set("User-Agent", USER_AGENT)
+            .set("X-Vqd-4", &self.current_vqd)
+            .send_json(ureq::json!({
+                "model": self.model,
+                "messages": self.messages,
+            }))
+            .map_err(Box::new)?;
+
+        self.current_vqd = net_resp
+            .header("X-Vqd-4")
+            .unwrap_or(&self.current_vqd)
+            .to_string();
+
+        Ok(DDGResponse {
+            chat: self,
+            content: String::new(),
+            reader: BufReader::new(net_resp.into_reader()),
+        })
     }
 }
 
-impl llm::LargeLanguageModel for DDGChat {
-    type Error = Error;
+pub struct DDGResponse<'c> {
+    chat: &'c mut DDGChat,
+    content: String,
+    reader: BufReader<Box<dyn std::io::Read + Send + Sync + 'static>>,
+}
 
-    fn send_message(&mut self, message: &str) -> Result<(), Error> {
-        self.messages.push(DDGMessage {
-            role: MessageRole::User,
-            text: message.to_string(),
-        });
+impl Iterator for DDGResponse<'_> {
+    type Item = Result<String, Error>;
 
+    fn next(&mut self) -> Option<Self::Item> {
         todo!()
     }
 }
