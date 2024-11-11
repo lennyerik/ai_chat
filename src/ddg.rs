@@ -1,4 +1,7 @@
-use std::io::BufReader;
+use std::{
+    io::{BufRead, BufReader, Read},
+    ops::Not,
+};
 
 use super::llm;
 
@@ -7,10 +10,16 @@ const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error("network request error")]
-    RequestError(#[from] Box<ureq::Error>),
+    Ureq(#[from] Box<ureq::Error>),
 
     #[error("no new Vqd received with last request")]
     NoVqdReceived,
+
+    #[error("got end of string while reading web response")]
+    ResponseEndOfString,
+
+    #[error("received invalid response")]
+    ResponseInvalid,
 }
 
 #[derive(serde::Serialize, Debug, Clone, Copy)]
@@ -95,6 +104,7 @@ impl<'c> llm::LargeLanguageModel<'c> for DDGChat {
             chat: self,
             content: String::new(),
             reader: BufReader::new(net_resp.into_reader()),
+            result: Ok(()),
         })
     }
 }
@@ -103,12 +113,70 @@ pub struct DDGResponse<'c> {
     chat: &'c mut DDGChat,
     content: String,
     reader: BufReader<Box<dyn std::io::Read + Send + Sync + 'static>>,
+    result: Result<(), Error>,
+}
+
+impl DDGResponse<'_> {
+    fn finish(&mut self) {
+        self.chat.messages.push(DDGMessage {
+            role: MessageRole::Assistant,
+            content: std::mem::take(&mut self.content),
+        });
+    }
+}
+
+fn get_message_from_data_str(data: &str) -> Option<String> {
+    let data = data.strip_prefix("data: ")?;
+    let json: serde_json::Value = serde_json::from_str(data).ok()?;
+    let message = json.get("message")?.as_str()?;
+    Some(message.to_owned())
 }
 
 impl Iterator for DDGResponse<'_> {
-    type Item = Result<String, Error>;
+    type Item = String;
 
     fn next(&mut self) -> Option<Self::Item> {
-        todo!()
+        if self.result.is_err() {
+            return None;
+        }
+
+        let line = {
+            let mut buf = String::new();
+            self.reader.read_line(&mut buf).ok()?;
+            buf = buf.trim_end().to_string();
+
+            // Skip the following newline
+            let _ = self.reader.read(&mut [0u8; 1]);
+
+            buf.is_empty().not().then_some(buf)
+        };
+
+        if let Some(line) = line {
+            if line == "[DONE]" {
+                self.finish();
+                return None;
+            }
+
+            let message = get_message_from_data_str(&line);
+
+            if let Some(message) = message {
+                self.content.push_str(&message);
+                Some(message)
+            } else {
+                self.result = Err(Error::ResponseInvalid);
+                self.finish();
+                None
+            }
+        } else {
+            self.result = Err(Error::ResponseEndOfString);
+            self.finish();
+            None
+        }
+    }
+}
+
+impl llm::LLMResponse<Error> for DDGResponse<'_> {
+    fn result(self) -> Result<(), Error> {
+        self.result
     }
 }
