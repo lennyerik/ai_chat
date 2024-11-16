@@ -9,7 +9,7 @@ const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    #[error("network request error")]
+    #[error("network request error: `{0}`")]
     Ureq(#[from] Box<ureq::Error>),
 
     #[error("no new Vqd received with last request")]
@@ -18,8 +18,8 @@ pub enum Error {
     #[error("got end of string while reading web response")]
     ResponseEndOfString,
 
-    #[error("received invalid response")]
-    ResponseInvalid,
+    #[error("received invalid response '`{0}`'")]
+    ResponseInvalid(String),
 }
 
 #[derive(serde::Serialize, Debug, Clone, Copy)]
@@ -104,7 +104,6 @@ impl<'c> llm::LargeLanguageModel<'c> for DDGChat {
             chat: self,
             content: String::new(),
             reader: BufReader::new(net_resp.into_reader()),
-            result: Ok(()),
         })
     }
 }
@@ -113,10 +112,20 @@ pub struct DDGResponse<'c> {
     chat: &'c mut DDGChat,
     content: String,
     reader: BufReader<Box<dyn std::io::Read + Send + Sync + 'static>>,
-    result: Result<(), Error>,
 }
 
 impl DDGResponse<'_> {
+    fn get_next_line(&mut self) -> Option<String> {
+        let mut buf = String::new();
+        self.reader.read_line(&mut buf).ok()?;
+        buf = buf.trim_end().to_string();
+
+        // Skip the following newline
+        let _ = self.reader.read(&mut [0u8; 1]);
+
+        buf.is_empty().not().then_some(buf)
+    }
+
     fn finish(&mut self) {
         self.chat.messages.push(DDGMessage {
             role: MessageRole::Assistant,
@@ -125,58 +134,37 @@ impl DDGResponse<'_> {
     }
 }
 
-fn get_message_from_data_str(data: &str) -> Option<String> {
-    let data = data.strip_prefix("data: ")?;
-    let json: serde_json::Value = serde_json::from_str(data).ok()?;
-    let message = json.get("message")?.as_str()?;
-    Some(message.to_owned())
-}
+fn parse_message_data(data: &str) -> Result<Option<String>, ()> {
+    let data = data.strip_prefix("data: ").ok_or(())?;
+    let json: serde_json::Value = serde_json::from_str(data).map_err(|_| ())?;
 
-impl Iterator for DDGResponse<'_> {
-    type Item = String;
+    let action = json.get("action").ok_or(())?.as_str().ok_or(())?;
+    if action != "success" {
+        return Err(());
+    }
 
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.result.is_err() {
-            return None;
-        }
-
-        let line = {
-            let mut buf = String::new();
-            self.reader.read_line(&mut buf).ok()?;
-            buf = buf.trim_end().to_string();
-
-            // Skip the following newline
-            let _ = self.reader.read(&mut [0u8; 1]);
-
-            buf.is_empty().not().then_some(buf)
-        };
-
-        if let Some(line) = line {
-            if line == "[DONE]" {
-                self.finish();
-                return None;
-            }
-
-            let message = get_message_from_data_str(&line);
-
-            if let Some(message) = message {
-                self.content.push_str(&message);
-                Some(message)
-            } else {
-                self.result = Err(Error::ResponseInvalid);
-                self.finish();
-                None
-            }
-        } else {
-            self.result = Err(Error::ResponseEndOfString);
-            self.finish();
-            None
-        }
+    match json.get("message") {
+        Some(message) => Ok(Some(message.as_str().ok_or(())?.to_owned())),
+        None => Ok(None),
     }
 }
 
-impl llm::LLMResponse<Error> for DDGResponse<'_> {
-    fn result(self) -> Result<(), Error> {
-        self.result
+impl fallible_iterator::FallibleIterator for DDGResponse<'_> {
+    type Item = String;
+    type Error = Error;
+
+    fn next(&mut self) -> Result<Option<Self::Item>, Self::Error> {
+        let line = self.get_next_line().ok_or(Error::ResponseEndOfString)?;
+
+        if line == "[DONE]" {
+            self.finish();
+            return Ok(None);
+        }
+
+        let message = parse_message_data(&line).map_err(|()| Error::ResponseInvalid(line))?;
+        if let Some(message) = &message {
+            self.content.push_str(message);
+        }
+        Ok(message)
     }
 }
