@@ -1,4 +1,8 @@
-use std::{fs, io, path::PathBuf};
+use std::{
+    fs,
+    io::{self, Write},
+    path::PathBuf,
+};
 
 use serde::{Deserialize, Serialize};
 
@@ -26,7 +30,7 @@ pub enum Error {
     FileIO(io::Error, PathBuf),
 
     #[error(transparent)]
-    Serde(#[from] serde_json::Error),
+    Toml(#[from] toml::de::Error),
 }
 
 impl Config {
@@ -41,14 +45,14 @@ impl Config {
         ])
     }
 
-    /// Opens a cofiguration file on disk or returns `ConfigError::FileDoesNotExist` if it does not exist
-    fn open_config_file() -> Result<Option<fs::File>, Error> {
+    fn read_config_file_to_string() -> Result<Option<String>, Error> {
         let possible_paths = Self::get_config_paths()?;
 
         for path in possible_paths {
             if path.exists() && path.is_file() {
+                let mut string = String::new();
                 return Ok(Some(
-                    fs::File::open(&path).map_err(|e| Error::FileIO(e, path))?,
+                    fs::read_to_string(&mut string).map_err(|e| Error::FileIO(e, path))?,
                 ));
             }
         }
@@ -58,8 +62,8 @@ impl Config {
 
     /// Reads the configuration from disk and returns a `Config` object
     pub fn read_from_disk() -> Result<Option<Self>, Error> {
-        if let Some(file) = Self::open_config_file()? {
-            Ok(Some(serde_json::from_reader(file)?))
+        if let Some(conf_string) = Self::read_config_file_to_string()? {
+            Ok(Some(toml::from_str(&conf_string)?))
         } else {
             Ok(None)
         }
@@ -76,8 +80,14 @@ impl Config {
             fs::create_dir_all(parent).map_err(|e| Error::FileIO(e, parent.to_path_buf()))?;
         }
 
-        let file = fs::File::create(path).map_err(|e| Error::FileIO(e, path.clone()))?;
-        serde_json::to_writer_pretty(file, &default_config)?;
+        let mut file = fs::File::create(path).map_err(|e| Error::FileIO(e, path.clone()))?;
+        write!(
+            file,
+            "{}",
+            toml::to_string_pretty(&default_config)
+                .expect("Serialisation of default config struct failed")
+        )
+        .map_err(|e| Error::FileIO(e, path.clone()))?;
 
         Ok(default_config)
     }
