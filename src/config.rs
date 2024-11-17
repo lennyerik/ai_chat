@@ -50,9 +50,8 @@ impl Config {
 
         for path in possible_paths {
             if path.exists() && path.is_file() {
-                let mut string = String::new();
                 return Ok(Some(
-                    fs::read_to_string(&mut string).map_err(|e| Error::FileIO(e, path))?,
+                    fs::read_to_string(&path).map_err(|e| Error::FileIO(e, path))?,
                 ));
             }
         }

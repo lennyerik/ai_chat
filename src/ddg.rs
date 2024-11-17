@@ -39,6 +39,7 @@ pub enum DDGChatModel {
     #[serde(rename = "mistralai/Mixtral-8x7B-Instruct-v0.1")]
     Mixtral8x7B,
 
+    #[serde(untagged)]
     Other(String),
 }
 
