@@ -20,7 +20,7 @@ pub enum Error {
     #[error("got end of string while reading web response")]
     ResponseEndOfString,
 
-    #[error("received invalid response '`{0}`'")]
+    #[error("received invalid response '{0}'")]
     ResponseInvalid(String),
 }
 
@@ -141,7 +141,6 @@ impl DDGResponse<'_> {
 }
 
 fn parse_message_data(data: &str) -> Result<Option<String>, ()> {
-    let data = data.strip_prefix("data: ").ok_or(())?;
     let json: serde_json::Value = serde_json::from_str(data).map_err(|_| ())?;
 
     let action = json.get("action").ok_or(())?.as_str().ok_or(())?;
@@ -161,13 +160,14 @@ impl fallible_iterator::FallibleIterator for DDGResponse<'_> {
 
     fn next(&mut self) -> Result<Option<Self::Item>, Self::Error> {
         let line = self.get_next_line().ok_or(Error::ResponseEndOfString)?;
+        let data = line.strip_prefix("data: ").unwrap_or(&line);
 
-        if line == "[DONE]" {
+        if data == "[DONE]" {
             self.finish();
             return Ok(None);
         }
 
-        let message = parse_message_data(&line).map_err(|()| Error::ResponseInvalid(line))?;
+        let message = parse_message_data(data).map_err(|()| Error::ResponseInvalid(line))?;
         if let Some(message) = &message {
             self.content.push_str(message);
         }
