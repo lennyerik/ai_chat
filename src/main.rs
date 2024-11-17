@@ -3,6 +3,7 @@ use std::io::Write;
 
 use llm::LargeLanguageModel;
 
+mod config;
 mod ddg;
 mod llm;
 
@@ -34,6 +35,22 @@ macro_rules! exit_with_error {
 }
 
 fn main() {
+    let config = match config::Config::read_from_disk() {
+        Ok(Some(config)) => config,
+        Err(e) => exit_with_error_msg(&format!("Error loading configuration file: {e}")),
+        Ok(None) => {
+            if let Ok(paths) = config::Config::get_config_paths() {
+                if let Some(path) = paths.first() {
+                    println!("Writing default configuration file to {path:?}\n");
+                }
+            }
+
+            config::Config::write_default().unwrap_or_else(|e| {
+                exit_with_error_msg(&format!("Error writing default configuration file: {e}"))
+            })
+        }
+    };
+
     let prompt: String = std::env::args().skip(1).collect();
     let prompt = prompt.trim();
 
@@ -44,7 +61,7 @@ fn main() {
         ));
     }
 
-    let mut model =
-        ddg::DDGChat::new(ddg::DDGChatModel::GPT4oMini).unwrap_or_else(exit_with_error!());
+    let mut model = ddg::DDGChat::new(config.ddg_chat_model.unwrap_or_default())
+        .unwrap_or_else(exit_with_error!());
     run_model_and_print_response(&mut model, prompt).unwrap_or_else(exit_with_error!());
 }

@@ -3,13 +3,15 @@ use std::{
     ops::Not,
 };
 
+use serde::{Deserialize, Serialize};
+
 use super::llm;
 
 const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    #[error("network request error: `{0}`")]
+    #[error("network request error: {0}")]
     Ureq(#[from] Box<ureq::Error>),
 
     #[error("no new Vqd received with last request")]
@@ -22,8 +24,9 @@ pub enum Error {
     ResponseInvalid(String),
 }
 
-#[derive(serde::Serialize, Debug, Clone, Copy)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub enum DDGChatModel {
+    #[default]
     #[serde(rename = "gpt-4o-mini")]
     GPT4oMini,
 
@@ -35,9 +38,11 @@ pub enum DDGChatModel {
 
     #[serde(rename = "mistralai/Mixtral-8x7B-Instruct-v0.1")]
     Mixtral8x7B,
+
+    Other(String),
 }
 
-#[derive(serde::Serialize, Debug, Clone, Copy)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
 pub enum MessageRole {
     #[serde(rename = "user")]
     User,
@@ -46,7 +51,7 @@ pub enum MessageRole {
     Assistant,
 }
 
-#[derive(serde::Serialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DDGMessage {
     role: MessageRole,
     content: String,
