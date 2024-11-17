@@ -51,7 +51,7 @@ fn main() {
         }
     };
 
-    let prompt: String = std::env::args().skip(1).collect();
+    let prompt: String = std::env::args().skip(1).collect::<Vec<_>>().join(" ");
     let prompt = prompt.trim();
 
     if prompt.is_empty() {
