@@ -82,11 +82,11 @@ impl DDGChat {
     }
 }
 
-impl<'c> llm::LargeLanguageModel<'c> for DDGChat {
+impl<'r> llm::LargeLanguageModel<'r> for DDGChat {
     type Error = Error;
-    type Response = DDGResponse<'c>;
+    type Response = DDGResponse<'r>;
 
-    fn send_message(&'c mut self, message: &str) -> Result<Self::Response, Self::Error> {
+    fn send_message(&'r mut self, message: &str) -> Result<Self::Response, Self::Error> {
         self.messages.push(DDGMessage {
             role: MessageRole::User,
             content: message.to_string(),
