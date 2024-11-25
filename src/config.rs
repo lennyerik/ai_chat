@@ -36,6 +36,7 @@ pub enum Error {
 impl Config {
     /// Gets all the possible config paths for the current system im order of importance
     /// TODO: This currently only works on linux
+    #[cfg(target_os = "linux")]
     pub fn get_config_paths() -> Result<Vec<PathBuf>, Error> {
         let home = PathBuf::from(std::env::var("HOME").map_err(|_| Error::NoHomeDir)?);
         Ok(vec![
