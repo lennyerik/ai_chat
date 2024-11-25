@@ -41,7 +41,7 @@ fn main() {
         Ok(None) => {
             if let Ok(paths) = config::Config::get_config_paths() {
                 if let Some(path) = paths.first() {
-                    println!("Writing default configuration file to {path:?}\n");
+                    println!("Writing default configuration file to {}\n", path.display());
                 }
             }
 

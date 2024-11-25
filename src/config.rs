@@ -26,7 +26,7 @@ pub enum Error {
     #[error("could not determine configuration path on this system")]
     NoValidConfigPaths,
 
-    #[error("{0}: {1:?}")]
+    #[error("{0}: {1}")]
     FileIO(io::Error, PathBuf),
 
     #[error(transparent)]
