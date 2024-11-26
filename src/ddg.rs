@@ -168,8 +168,11 @@ impl fallible_iterator::FallibleIterator for DDGResponse<'_> {
         }
 
         let message = parse_message_data(data).map_err(|()| Error::ResponseInvalid(line))?;
+
         if let Some(message) = &message {
             self.content.push_str(message);
+        } else {
+            self.finish();
         }
         Ok(message)
     }
