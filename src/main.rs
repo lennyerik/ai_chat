@@ -1,5 +1,5 @@
 use fallible_iterator::FallibleIterator;
-use std::io::Write;
+use std::io::{IsTerminal, Write};
 
 use llm::LargeLanguageModel;
 
@@ -8,15 +8,15 @@ mod ddg;
 mod llm;
 
 fn run_model_and_print_response<'m, M: llm::LargeLanguageModel<'m>>(
+    output_writer: &mut impl Write,
     model: &'m mut M,
     prompt: &str,
 ) -> Result<(), <M as LargeLanguageModel<'m>>::Error> {
     let mut response = model.send_message(prompt)?;
 
-    let mut stdout = std::io::stdout().lock();
     while let Some(response_chunk) = response.next()? {
-        let _ = write!(stdout, "{response_chunk}");
-        let _ = stdout.flush();
+        let _ = write!(output_writer, "{response_chunk}");
+        let _ = output_writer.flush();
     }
     println!();
 
@@ -63,5 +63,27 @@ fn main() {
 
     let mut model = ddg::DDGChat::new(config.ddg_chat_model.unwrap_or_default())
         .unwrap_or_else(exit_with_error!());
-    run_model_and_print_response(&mut model, prompt).unwrap_or_else(exit_with_error!());
+
+    let mut stdout = std::io::stdout();
+    run_model_and_print_response(&mut stdout, &mut model, prompt)
+        .unwrap_or_else(exit_with_error!());
+
+    let stdin = std::io::stdin();
+    if !stdin.is_terminal() {
+        return;
+    }
+
+    loop {
+        let _ = write!(stdout, "> ");
+        let _ = stdout.flush();
+
+        let mut input = String::new();
+
+        if stdin.read_line(&mut input).is_err() || input.is_empty() {
+            break;
+        }
+
+        run_model_and_print_response(&mut stdout, &mut model, input.trim())
+            .unwrap_or_else(exit_with_error!());
+    }
 }

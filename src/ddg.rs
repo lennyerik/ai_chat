@@ -48,7 +48,7 @@ pub enum MessageRole {
     #[serde(rename = "user")]
     User,
 
-    #[serde(rename = "asssistant")]
+    #[serde(rename = "assistant")]
     Assistant,
 }
 
